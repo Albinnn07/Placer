@@ -24,7 +24,7 @@ try {
 } catch (error) {
   console.error("⚠️ Config error. Using default values.");
   config = { 
-    circleCenter: { x: 0, y: 87, z: 0 }, 
+    circleCenter: { x: 280, y: 87, z: -675 }, 
     radius: 10, 
     autoSleep: true, 
     blockType: 'dirt', 

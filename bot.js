@@ -36,7 +36,7 @@ const botOptions = {
   host: process.env.MINECRAFT_HOST || "gameplanet.aternos.me",
   port: 16548,
   username: process.env.MINECRAFT_USERNAME || "Placer",
-  version: "1.21.1",
+  version: "1.21.11",
   auth: "offline",
 };
 

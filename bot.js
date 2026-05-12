@@ -22,7 +22,7 @@ let config;
 try {
   config = JSON.parse(fs.readFileSync("config.json", "utf8"));
 } catch (e) {
-  config = { circleCenter: { x: 0, y: 87, z: 0 }, radius: 10, autoSleep: true, blockType: 'dirt' };
+  config = { circleCenter: { x: 280, y: 87, z: -675 }, radius: 10, autoSleep: true, blockType: 'dirt' };
 }
 
 const botOptions = {

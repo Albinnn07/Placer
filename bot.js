@@ -1,15 +1,35 @@
 require("dotenv").config();
+const express = require('express');
 const mineflayer = require("mineflayer");
 const { pathfinder, Movements, goals } = require("mineflayer-pathfinder");
 const Vec3 = require("vec3");
 const fs = require("fs");
 
+// --- 1. RENDER KEEP-ALIVE SERVER ---
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+  res.send('<h1>AI Brain Online</h1><p>Territorial Protection and 14 Features Active.</p>');
+});
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`📡 Render Port Binding Successful on ${PORT}`);
+});
+
+// --- 2. CONFIGURATION LOAD ---
 let config;
 try {
   config = JSON.parse(fs.readFileSync("config.json", "utf8"));
 } catch (error) {
-  console.error("Error reading config.json:", error.message);
-  process.exit(1);
+  console.log("⚠️ Config.json not found. Using default territory values.");
+  config = {
+    circleCenter: { x: 0, y: 87, z: 0 },
+    radius: 10,
+    autoSleep: true,
+    blockType: 'dirt',
+    pointsPerCircle: 8
+  };
 }
 
 const botOptions = {
@@ -25,9 +45,25 @@ let isProcessing = false;
 let isSleeping = false;
 let creativeInventoryLock = false;
 
+// --- 3. ROBUST RECONNECT & ERROR HANDLING ---
 function createBot() {
-  if (bot) bot.removeAllListeners();
+  if (bot) {
+    bot.removeAllListeners();
+    try { bot.quit(); } catch (e) {}
+    bot = null;
+  }
+  
+  console.log("🔄 AI Brain: Establishing secure link...");
   bot = mineflayer.createBot(botOptions);
+
+  bot.on("error", (err) => {
+    if (err.code === 'ECONNRESET') {
+      console.log("⚠️ Connection Reset (ECONNRESET). Cooling down...");
+    } else {
+      console.log(`⚠️ AI Brain Alert: ${err.message}`);
+    }
+  });
+
   setupBotHandlers();
 }
 
@@ -37,7 +73,7 @@ function setupBotHandlers() {
   bot.loadPlugin(pathfinder);
 
   bot.on("spawn", () => {
-    console.log("✅ AI Brain Online. Territorial Protection Active.");
+    console.log("✅ AI Brain Online. Features Initializing...");
     isProcessing = false;
     isSleeping = false;
     
@@ -45,57 +81,64 @@ function setupBotHandlers() {
     const defaultMove = new Movements(bot, mcData);
     bot.pathfinder.setMovements(defaultMove);
 
+    // 10-second stability delay for Aternos/Render
     setTimeout(async () => {
+      if (!bot || !bot.entity) return;
+      console.log("🛡️ Protection Activated.");
       bot.chat("/gamemode creative");
       startAILoop();
-    }, 2000);
+    }, 10000); 
   });
 
-  bot.on("kicked", () => setTimeout(createBot, 10000));
-  bot.on("end", () => setTimeout(createBot, 10000));
+  bot.on("kicked", (reason) => {
+    console.log("🚪 Kicked from server. Retrying in 30s...");
+    setTimeout(createBot, 30000);
+  });
+
+  bot.on("end", () => {
+    console.log("🔌 Connection lost. Retrying in 30s...");
+    setTimeout(createBot, 30000);
+  });
 }
 
-// --- TERRITORIAL CLEANING (FEATURE 3 & 9) ---
+// --- 4. TERRITORIAL CLEANING (Destroy players blocks above Y 87) ---
 async function cleanTerritory() {
-  const center = new Vec3(config.circleCenter.x, config.circleCenter.y, config.circleCenter.z);
-  // Scan for any blocks above Y 87 within the circle radius
-  const blocksToClear = bot.findBlocks({
+  if (!bot || !bot.entity) return;
+  const blocks = bot.findBlocks({
     matching: (block) => block.name !== 'air' && !block.name.includes('bed'),
-    maxDistance: config.radius + 5,
-    count: 20
+    maxDistance: (config.radius || 10) + 4,
+    count: 8 
   }).filter(pos => pos.y >= 87);
 
-  for (const pos of blocksToClear) {
+  for (const pos of blocks) {
     const block = bot.blockAt(pos);
     if (block) {
       await bot.dig(block).catch(() => {});
-      await delay(100);
+      await delay(350); // Prevent FastBreak kicks
     }
   }
 }
 
-// --- SMART SLEEP LOGIC (FEATURE 5 & 12) ---
+// --- 5. SMART SLEEP (3 Clicks Weather Trick) ---
 async function handleSleepLogic() {
-  if (isSleeping) return;
+  if (isSleeping || !bot || !bot.entity) return;
   isSleeping = true;
   isProcessing = true;
   bot.pathfinder.setGoal(null);
 
   bot.chat(`/tp ${config.circleCenter.x} ${config.circleCenter.y} ${config.circleCenter.z}`);
-  await delay(500);
-  bot.chat("/kill @e[type=!player,distance=..15]");
-  await delay(800);
+  await delay(2000);
+  bot.chat("/kill @e[type=!player,distance=..15]"); // Clear monsters before sleep
+  await delay(2000);
 
-  const bedNames = ["red_bed", "white_bed", "blue_bed", "yellow_bed"];
+  const bedNames = ["red_bed", "white_bed", "blue_bed", "yellow_bed", "black_bed"];
   let bed = bot.findBlock({ matching: b => bedNames.includes(b.name), maxDistance: 25 });
 
   if (bed) {
     bot.chat(`/tp ${bed.position.x} ${bed.position.y + 1} ${bed.position.z}`);
-    await delay(500);
+    await delay(1500);
     
-    // FEATURE: Click bed 3 times to test for thunder/night sleep
-    for (let i = 0; i < 3; i++) {
-      console.log(`🛌 Sleep Attempt ${i + 1}/3...`);
+    for (let i = 0; i < 3; i++) { // Click bed 3 times trick
       try {
         await bot.lookAt(bed.position.offset(0.5, 0.5, 0.5), true);
         await bot.sleep(bed);
@@ -103,38 +146,33 @@ async function handleSleepLogic() {
           isSleeping = false; isProcessing = false;
           startAILoop();
         });
-        return; // Success, exit loop
-      } catch (e) {
-        await delay(1000);
+        return;
+      } catch (e) { 
+        console.log(`🛌 Sleep attempt ${i+1}/3 failed...`);
+        await delay(2000); 
       }
     }
-    
-    console.log("🌦️ Not thunder. Resuming activities.");
-    isSleeping = false; isProcessing = false;
-  } else {
-    isSleeping = false; isProcessing = false;
   }
+  isSleeping = false; isProcessing = false;
 }
 
-// --- COMBAT (FEATURE 6) ---
+// --- 6. COMBAT & AI LOOP ---
 async function combatScan() {
+  if (!bot || !bot.entity) return;
   const target = bot.nearestEntity((e) => {
     if (e.type !== 'mob') return false;
-    const hostiles = ['zombie', 'skeleton', 'spider', 'creeper'];
-    const distToCenter = e.position.distanceTo(new Vec3(config.circleCenter.x, config.circleCenter.y, config.circleCenter.z));
-    // Attacks only if inside circle radius
-    return hostiles.some(h => e.name.toLowerCase().includes(h)) && distToCenter <= (config.radius + 2);
+    const hostiles = ['zombie', 'skeleton', 'spider', 'creeper', 'pillager'];
+    const dist = e.position.distanceTo(new Vec3(config.circleCenter.x, config.circleCenter.y, config.circleCenter.z));
+    return hostiles.some(h => e.name.toLowerCase().includes(h)) && dist <= ((config.radius || 10) + 1.5);
   });
-
   if (target) {
-    await bot.lookAt(target.position.offset(0, 1, 0));
+    await bot.lookAt(target.position.offset(0, 1.2, 0));
     bot.attack(target);
   }
 }
 
-// --- MAIN AI LOOP ---
 async function startAILoop() {
-  if (isProcessing || isSleeping) return;
+  if (isProcessing || isSleeping || !bot || !bot.entity) return;
 
   if (config.autoSleep && (bot.time.timeOfDay >= 13000 || bot.isRaining)) {
     await handleSleepLogic();
@@ -142,13 +180,13 @@ async function startAILoop() {
   }
 
   await combatScan();
-  await cleanTerritory(); // Ensure surface is plain
+  await cleanTerritory();
 
   isProcessing = true;
   try {
-    await walkCircle(true);
+    await walkCircle(true);  // Clockwise
     await placeAndBreak();
-    await walkCircle(false);
+    await walkCircle(false); // Anti-clockwise
     await placeAndBreak();
   } catch (e) {}
   
@@ -159,33 +197,29 @@ async function startAILoop() {
 async function walkCircle(clockwise) {
   const num = config.pointsPerCircle || 8;
   for (let i = 0; i < num; i++) {
-    if (bot.isRaining || bot.time.timeOfDay >= 13000) return;
+    if (!bot || !bot.entity || bot.isRaining || bot.time.timeOfDay >= 13000) return;
     const angle = (2 * Math.PI * i / num) * (clockwise ? 1 : -1);
     const p = {
-      x: config.circleCenter.x + config.radius * Math.cos(angle),
-      z: config.circleCenter.z + config.radius * Math.sin(angle)
+      x: config.circleCenter.x + (config.radius || 10) * Math.cos(angle),
+      z: config.circleCenter.z + (config.radius || 10) * Math.sin(angle)
     };
-    bot.setControlState("jump", true);
-    bot.pathfinder.setGoal(new goals.GoalNear(p.x, config.circleCenter.y, p.z, 2));
+    bot.pathfinder.setGoal(new goals.GoalNear(p.x, config.circleCenter.y, p.z, 2.5));
     await waitForTarget(p);
-    bot.setControlState("jump", false);
     await combatScan();
   }
 }
 
 async function placeAndBreak() {
+  if (!bot || !bot.entity) return;
   const mcData = require("minecraft-data")(bot.version);
   const type = config.blockType || 'dirt';
   await ensureCreativeItem(type, 1);
   const item = bot.inventory.findInventoryItem(mcData.itemsByName[type].id);
-  
   if (item) {
     await bot.equip(item, "hand");
     const ref = bot.blockAt(bot.entity.position.offset(0, -1, 1));
     await bot.placeBlock(ref, new Vec3(0, 1, 0)).catch(() => {});
-    
-    // FEATURE: Immediate destroy after placing
-    await delay(150); 
+    await delay(250); // Immediate destroy
     const target = bot.blockAt(bot.entity.position.offset(0, 0, 1));
     if (target && target.name !== 'air') await bot.dig(target).catch(() => {});
   }
@@ -193,24 +227,22 @@ async function placeAndBreak() {
 
 async function waitForTarget(p) {
   return new Promise((res) => {
-    const timer = setTimeout(res, 5000);
+    const timer = setTimeout(res, 8000);
     const check = setInterval(() => {
-      if (bot.entity.position.distanceTo(new Vec3(p.x, config.circleCenter.y, p.z)) < 2.5) {
+      if (bot && bot.entity && bot.entity.position.distanceTo(new Vec3(p.x, config.circleCenter.y, p.z)) < 3) {
         clearInterval(check); clearTimeout(timer); res();
       }
-    }, 200);
+    }, 500);
   });
 }
 
 async function ensureCreativeItem(name, count) {
-  if (creativeInventoryLock || !bot.creative) return;
-  creativeInventoryLock = true;
+  if (!bot || !bot.creative) return;
   const mcData = require("minecraft-data")(bot.version);
   const item = mcData.itemsByName[name];
   if (item && !bot.inventory.findInventoryItem(item.id)) {
     await bot.creative.setInventorySlot(36, new (require("prismarine-item")(bot.version))(item.id, count));
   }
-  creativeInventoryLock = false;
 }
 
 function delay(ms) { return new Promise(res => setTimeout(res, ms)); }

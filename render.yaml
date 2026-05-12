@@ -1,8 +1,0 @@
-services:
-  - type: web
-    name: minecraft-ai-brain
-    env: node
-    plan: free
-    buildCommand: npm install
-    startCommand: node bot.js
-    autoDeploy: true

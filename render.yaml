@@ -6,17 +6,19 @@ services:
     plan: free
     buildCommand: npm install
     startCommand: npm start
-    healthCheckPath: /health
+    healthCheckPath: / # Changed from /health to match our code
     envVars:
       - key: MINECRAFT_HOST
-        sync: false
+        value: "gameplanet.aternos.me" # You can put the default here or set in dashboard
       - key: MINECRAFT_PORT
-        sync: false
+        value: "16548"
       - key: MINECRAFT_USERNAME
-        sync: false
+        value: "Placer"
       - key: MINECRAFT_VERSION
-        sync: false
+        value: "1.21.1"
       - key: MINECRAFT_AUTH
-        sync: false
+        value: "offline"
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: 3000
